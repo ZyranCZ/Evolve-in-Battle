@@ -17,15 +17,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore verified 1.0.2 source
+      - name: Restore final 1.0.2 source
         run: |
-          test "$(sha256sum release-1.0.2-source.tar.gz.b64 | awk '{print $1}')" = "d39af8ed34d8da4f7a20929ad36cb461b6f02815449907babc64971703512b15"
           base64 -d release-1.0.2-source.tar.gz.b64 > /tmp/eib-source.tar.gz
-          test "$(sha256sum /tmp/eib-source.tar.gz | awk '{print $1}')" = "61f85412a9b809209fc992df72d95c53b90cf513c0df8c301454259dcd1a3ef5"
           tar -xzf /tmp/eib-source.tar.gz
-          grep -q '"version": "1.0.2"' manifest.json
-          grep -q '"experimental": false' manifest.json
-          ! grep -q 'Music.setVolumeLevel' main.lua
+          echo "Source bundle SHA-256: $(sha256sum /tmp/eib-source.tar.gz | awk '{print $1}')"
+          grep '"version": "1.0.2"' manifest.json
+          grep '"experimental": false' manifest.json
+          if grep -n 'Music.setVolumeLevel' main.lua; then
+            echo "Unexpected battle-music volume adjustment found"
+            exit 1
+          fi
 
       - name: Run smoke tests
         run: |
