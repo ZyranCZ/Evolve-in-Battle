@@ -1,4 +1,4 @@
--- Evolve in Battle v1.0.1
+-- Evolve in Battle v1.0.2
 -- Target: Gen1Recomp 0.1.75 / Mod API 2
 --
 -- Stable release. Supports in-battle evolution from ordinary EXP, EXP Share Modes bench EXP,
@@ -17,10 +17,19 @@
 -- manifest declares engine_internals and pins game_version to 0.1.75.
 
 return function(mod)
+  -- In-battle audio policy. OFF is deliberately the default: the battle or
+  -- victory theme keeps playing at its normal volume and EvolutionState's
+  -- evolution cue is suppressed. ON enables the optional parallel evolution
+  -- overlay while leaving the underlying battle track at its normal volume.
+  mod.options:define({
+    { key = "evolution_music", label = "EVOLUTION MUSIC", type = "toggle", default = false },
+  })
+
   local Evolution = require("src.pokemon.Evolution")
   local BattleState = require("src.battle.BattleState")
   local ItemEffects = require("src.inventory.ItemEffects")
   local Music = require("src.core.Music")
+  local EvolutionState = require("src.ui.EvolutionState")
   local VanillaBagMenu = require("src.ui.BagMenu")
   local Screens = require("src.ui.Screens")
   local Bag = require("src.inventory.Bag")
@@ -97,17 +106,211 @@ return function(mod)
     end
   end
 
-  local function restoreBattleMusic(battle)
-    if not battle or not battle.data then return end
+  ---------------------------------------------------------------------------
+  -- In-battle evolution audio: keep the battle/victory track alive
+  ---------------------------------------------------------------------------
 
-    local trainerId = battle.trainer and battle.trainer.id or nil
-    if battle.victoryMusicPlayed then
-      local victoryKind = battle.musicKind == "final" and "gym"
-        or (battle.musicKind or battle.kind or "wild")
-      Music.playVictory(battle.data, victoryKind, trainerId)
+  -- Vanilla EvolutionState calls Music.play(evolution), which replaces and
+  -- STOPS the currently playing battle source. It later calls restoreMap(),
+  -- and v1.0.1 then had to call playBattle()/playVictory() again, restarting
+  -- the track from the beginning.  During evolutions started by this mod we
+  -- instead leave the main Music source untouched and synthesize the evolution
+  -- cue on a separate LOVE Source. The battle/victory music therefore keeps
+  -- advancing underneath it and resumes at the exact same position naturally.
+  local vanillaMusicPlay = Music.play
+  local vanillaMusicRestoreMap = Music.restoreMap
+  local vanillaEvolutionUpdate = EvolutionState.update
+
+  local function evolutionMusicEnabled()
+    return mod.options:get("evolution_music") == true
+  end
+
+  -- data -> { count, battle, overlay }
+  -- Weak keys keep datasets collectible on a game/version reload.
+  local battleEvolutionAudio = setmetatable({}, { __mode = "k" })
+
+  local OVERLAY_BUFFER_COUNT = 8
+  local OVERLAY_INITIAL_FILL = 4
+  local OVERLAY_FILL_PER_UPDATE = 3
+
+  local function clamp(v, lo, hi)
+    v = tonumber(v) or lo
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
+  end
+
+  local function musicOptions(entry)
+    local opts = entry and entry.battle and entry.battle.game
+      and entry.battle.game.save and entry.battle.game.save.options or nil
+    local level = clamp(opts and opts.musicVol or 7, 0, 7)
+    local filter = clamp(opts and opts.musicFilter or 0, 0, 3)
+    return level, filter
+  end
+
+  local function applyOverlayMix(src, entry)
+    if not src then return end
+    local level, filter = musicOptions(entry)
+    -- Match Music.lua's base volume and user's music volume. The battle track
+    -- remains at exactly the same volume while the evolution cue plays.
+    pcall(src.setVolume, src, 0.7 * (level / 7))
+    if filter > 0 then
+      pcall(src.setFilter, src, {
+        type = "lowpass", volume = 1, highgain = 0.4 ^ filter,
+      })
     else
-      Music.playBattle(battle.data, battle.musicKind or battle.kind or "wild", trainerId)
+      pcall(src.setFilter, src)
     end
+  end
+
+  local function stopEvolutionOverlay(data)
+    local entry = data and battleEvolutionAudio[data] or nil
+    if not entry or not entry.overlay then return end
+    local overlay = entry.overlay
+    entry.overlay = nil
+    if overlay.source then pcall(overlay.source.stop, overlay.source) end
+  end
+
+  local function fillChipOverlay(overlay, limit)
+    if not overlay or overlay.kind ~= "chip" then return end
+    local source, engine = overlay.source, overlay.engine
+    if not source or not engine then return end
+    local ChipSynth = require("src.core.ChipSynth")
+    local free = source:getFreeBufferCount()
+    while free > 0 and limit > 0 do
+      local ok, data = pcall(
+        ChipSynth.soundData, engine, ChipSynth.MUSIC_BUFFER_SAMPLES, 2
+      )
+      if not ok or not data then
+        overlay.failed = true
+        return
+      end
+      source:queue(data)
+      free = free - 1
+      limit = limit - 1
+    end
+  end
+
+  local function startEvolutionOverlay(data)
+    local entry = data and battleEvolutionAudio[data] or nil
+    if not entry or not love or not love.audio then return false end
+
+    stopEvolutionOverlay(data)
+
+    local song = Music.special(data, "evolution")
+    local def = data and data.audio and data.audio.songs and data.audio.songs[song]
+    if not song or not def then return false end
+
+    local overlay
+    if def.file then
+      local ok, source = pcall(love.audio.newSource, def.file, "stream")
+      if not ok or not source then return false end
+      pcall(source.setLooping, source, true)
+      overlay = { kind = "file", source = source }
+    else
+      local ChipSynth = require("src.core.ChipSynth")
+      if not (love.audio.newQueueableSource and ChipSynth.newEngine) then return false end
+      local okEngine, engine = pcall(ChipSynth.newEngine, data, def, { allowLoops = true })
+      if not okEngine or not engine then return false end
+      local okSource, source = pcall(
+        love.audio.newQueueableSource,
+        ChipSynth.SAMPLE_RATE, 16, 2, OVERLAY_BUFFER_COUNT
+      )
+      if not okSource or not source then return false end
+      overlay = { kind = "chip", source = source, engine = engine }
+    end
+
+    entry.overlay = overlay
+    applyOverlayMix(overlay.source, entry)
+
+    -- Keep the original battle/victory source completely untouched: no pause,
+    -- restart, seek, or volume change. Both tracks play at the user's normal
+    -- music-volume setting.
+
+    if overlay.kind == "chip" then
+      fillChipOverlay(overlay, OVERLAY_INITIAL_FILL)
+      if overlay.failed then
+        stopEvolutionOverlay(data)
+        return false
+      end
+    end
+
+    local okPlay = pcall(overlay.source.play, overlay.source)
+    if not okPlay then
+      stopEvolutionOverlay(data)
+      return false
+    end
+    return true
+  end
+
+  local function armBattleEvolutionAudio(battle)
+    local data = battle and battle.data
+    if not data then return end
+    local entry = battleEvolutionAudio[data]
+    if not entry then
+      entry = { count = 0, battle = battle, overlay = nil }
+      battleEvolutionAudio[data] = entry
+    end
+    entry.count = entry.count + 1
+    entry.battle = battle
+  end
+
+  local function disarmBattleEvolutionAudio(battle)
+    local data = battle and battle.data
+    local entry = data and battleEvolutionAudio[data] or nil
+    if not entry then return end
+    entry.count = math.max(0, (entry.count or 1) - 1)
+    if entry.count == 0 then
+      stopEvolutionOverlay(data)
+      battleEvolutionAudio[data] = nil
+    end
+  end
+
+  local wrappedMusicPlay
+  wrappedMusicPlay = function(data, song, loop, ctx)
+    local entry = data and battleEvolutionAudio[data] or nil
+    if entry and entry.count > 0 and song == Music.special(data, "evolution") then
+      -- Default OFF: swallow the evolution cue completely. The battle/victory
+      -- theme continues at full volume on its existing source and position.
+      if not evolutionMusicEnabled() then return end
+
+      -- Optional ON mode: add the evolution cue in parallel while leaving the
+      -- still-running battle/victory source untouched at its normal volume.
+      if not startEvolutionOverlay(data) and mod.log and mod.log.warn then
+        mod.log:warn("Could not start parallel evolution music; battle music left uninterrupted")
+      end
+      return
+    end
+    return vanillaMusicPlay(data, song, loop, ctx)
+  end
+
+  local wrappedMusicRestoreMap
+  wrappedMusicRestoreMap = function(data)
+    local entry = data and battleEvolutionAudio[data] or nil
+    if entry and entry.count > 0 then
+      -- EvolutionState's restoreMap belongs to field evolutions. During a live
+      -- battle it would replace the still-playing battle/victory source.
+      return
+    end
+    return vanillaMusicRestoreMap(data)
+  end
+
+  local wrappedEvolutionUpdate
+  wrappedEvolutionUpdate = function(self, dt)
+    local data = self and self.game and self.game.data or nil
+    local entry = data and battleEvolutionAudio[data] or nil
+    if entry and entry.overlay and entry.overlay.kind == "chip" then
+      fillChipOverlay(entry.overlay, OVERLAY_FILL_PER_UPDATE)
+      if entry.overlay.failed then stopEvolutionOverlay(data) end
+    end
+
+    local results = pack(vanillaEvolutionUpdate(self, dt))
+
+    -- The visual evolution movie is over once EvolutionState sets done. Stop
+    -- only the parallel cue here; keep suppressing restoreMap until vanilla's
+    -- completion callback (including evolved-species move learning) returns.
+    if entry and self and self.done then stopEvolutionOverlay(data) end
+    return unpack_(results, 1, results.n)
   end
 
   local function showMessages(game, messages, onDone)
@@ -138,6 +341,7 @@ return function(mod)
       snapshot = snapshot,
       synced = false,
     }
+    armBattleEvolutionAudio(battle)
 
     local finished = false
     vanillaEvolve(battle.game, mon, newSpecies, function()
@@ -148,9 +352,9 @@ return function(mod)
       local evolved = entry and entry.synced or false
       pendingSync[mon] = nil
 
-      -- EvolutionState restores map music before its callback.  We are now
-      -- back in a still-live battle, so restore the appropriate battle track.
-      restoreBattleMusic(battle)
+      -- Battle/victory music never stopped during the evolution. Release the
+      -- restoreMap guard; there is deliberately no Music.playBattle restart.
+      disarmBattleEvolutionAudio(battle)
 
       if onDone then onDone(evolved) end
     end, via)
@@ -486,10 +690,13 @@ return function(mod)
   ItemEffects.use = wrappedItemUse
   Evolution.evolve = wrappedEvolve
   VanillaBagMenu.new = wrappedBagMenuNew
+  Music.play = wrappedMusicPlay
+  Music.restoreMap = wrappedMusicRestoreMap
+  EvolutionState.update = wrappedEvolutionUpdate
 
   if wrappedExpShareHandler then
-    mod.log:info("Evolve in Battle v1.0.1 loaded (EXP Share Modes integration active, Gen1Recomp 0.1.75)")
+    mod.log:info("Evolve in Battle v1.0.2 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF, Gen1Recomp 0.1.75)")
   else
-    mod.log:info("Evolve in Battle v1.0.1 loaded (vanilla battle.exp_award tracking, Gen1Recomp 0.1.75)")
+    mod.log:info("Evolve in Battle v1.0.2 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF, Gen1Recomp 0.1.75)")
   end
 end

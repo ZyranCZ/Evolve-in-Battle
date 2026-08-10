@@ -25,3 +25,9 @@ Vanilla Gen1Recomp also rejects Rare Candy during battle. This mod enables a bat
 ## Engine-internal scope
 
 The public Mod API does not currently expose every seam required for these behaviors. The release therefore declares `engine_internals` and is pinned to Gen1Recomp 0.1.75.
+
+## Battle music continuity
+
+- In-battle evolution no longer replaces the current battle/victory music source.
+- Evolution music is synthesized/played on a separate source and mixed over the still-running battle track.
+- Field evolutions retain vanilla music switching behavior.

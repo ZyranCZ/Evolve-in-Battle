@@ -1,4 +1,4 @@
--- Headless smoke test for Evolve in Battle v1.0.1.
+-- Headless smoke test for Evolve in Battle v1.0.2.
 -- Run from the mod folder with: texlua tests/smoke.lua
 
 local scriptPath = debug.getinfo(1, "S").source:sub(2)
@@ -7,10 +7,12 @@ local ROOT = scriptPath:match("^(.*)/tests/") or "."
 local listeners = {}
 local hooks = {}
 local screenPickTarget = nil
-local music = { battle = 0, victory = 0 }
+local music = { battle = 0, victory = 0, direct = 0, restore = 0, volumes = {} }
 local originalItemCalls = {}
 local originalEvolutionCalls = 0
 local yellowMode = false
+local modOptionValues = {}
+local modOptionDefs = {}
 
 local function emit(name, payload)
   for _, fn in ipairs(listeners[name] or {}) do fn(payload) end
@@ -42,6 +44,8 @@ package.preload["src.pokemon.Evolution"] = function()
   end
   function E.evolve(game, mon, species, onDone, via)
     originalEvolutionCalls = originalEvolutionCalls + 1
+    local Music = require("src.core.Music")
+    Music.play(game.data, Music.special(game.data, "evolution"))
     local old = mon.species
     mon.species = species
     mon.stats = {
@@ -50,6 +54,8 @@ package.preload["src.pokemon.Evolution"] = function()
     }
     mon.hp = mon.stats.hp - 5
     emit("pokemon.evolved", { mon = mon, fromSpecies = old, toSpecies = species, via = via })
+    -- EvolutionState restores map music before its callback.
+    Music.restoreMap(game.data)
     -- In the real engine this callback occurs only after congratulations and
     -- Evolution.learnEvolutionMoves have finished.
     if onDone then onDone() end
@@ -236,14 +242,60 @@ package.preload["src.battle.Experience"] = function()
   }
 end
 
+package.preload["src.ui.EvolutionState"] = function()
+  return { update = function() end }
+end
+
 package.preload["src.core.Music"] = function()
+  local M = {}
+  function M.special(data, key) return key == "evolution" and "EVOLUTION" or nil end
+  function M.play() music.direct = music.direct + 1 end
+  function M.restoreMap() music.restore = music.restore + 1 end
+  function M.playBattle() music.battle = music.battle + 1 end
+  function M.playVictory() music.victory = music.victory + 1 end
+  function M.setVolumeLevel(level) music.volumes[#music.volumes + 1] = level end
+  return M
+end
+
+package.preload["src.core.ChipSynth"] = function()
   return {
-    playBattle = function() music.battle = music.battle + 1 end,
-    playVictory = function() music.victory = music.victory + 1 end,
+    SAMPLE_RATE = 44100,
+    MUSIC_BUFFER_SAMPLES = 8192,
+    newEngine = function() return {} end,
+    soundData = function() return {} end,
+  }
+end
+
+do
+  local function source()
+    local s = { free = 8, played = false, stopped = false }
+    function s:getFreeBufferCount() return self.free end
+    function s:queue() self.free = math.max(0, self.free - 1) end
+    function s:play() self.played = true end
+    function s:stop() self.stopped = true end
+    function s:setVolume(v) self.volume = v end
+    function s:setFilter(...) self.filter = { ... } end
+    function s:setLooping(v) self.looping = v end
+    return s
+  end
+  love = {
+    audio = {
+      newQueueableSource = function() return source() end,
+      newSource = function() return source() end,
+    },
   }
 end
 
 local mod = {
+  options = {
+    define = function(self, defs)
+      for _, def in ipairs(defs or {}) do
+        modOptionDefs[def.key] = def
+        if modOptionValues[def.key] == nil then modOptionValues[def.key] = def.default end
+      end
+    end,
+    get = function(self, key) return modOptionValues[key] end,
+  },
   hooks = {
     wrap = function(self, name, fn) hooks[name] = fn end,
   },
@@ -272,9 +324,13 @@ entry(mod)
 assert(ItemEffects.use ~= originalUse, "ItemEffects.use was not directly overridden")
 assert(Evolution.evolve ~= originalEvolve, "Evolution.evolve was not wrapped")
 assert(BagMenu.new ~= originalBagNew, "BagMenu.new was not directly wrapped")
-assert(BattleState.awardExp == originalAwardExp, "v1.0.1 should not monkey-patch BattleState.awardExp")
+assert(BattleState.awardExp == originalAwardExp, "v1.0.2 should not monkey-patch BattleState.awardExp")
 assert(hooks["battle.exp_award"], "battle.exp_award hook was not registered")
-assert(not listeners["battle.exp_gained"], "v1.0.0 fallback should not depend on battle.exp_gained")
+assert(not listeners["battle.exp_gained"], "v1.0.2 fallback should not depend on battle.exp_gained")
+assert(modOptionDefs.evolution_music and modOptionDefs.evolution_music.type == "toggle",
+  "EVOLUTION MUSIC toggle was not registered")
+assert(modOptionValues.evolution_music == false,
+  "EVOLUTION MUSIC must default to OFF")
 
 local function newGame(party)
   return {
@@ -287,11 +343,13 @@ local function newGame(party)
         RARE_CANDY = { name = "RARE CANDY" },
       },
       moves = { TEST_MOVE = { name = "TEST MOVE", pp = 20 } },
+      audio = { songs = { EVOLUTION = { chip = { channels = {} } } } },
     },
     save = {
       party = party,
       player = { name = "RED", id = 1234 },
       inventory = { MOON_STONE = 2, THUNDER_STONE = 2, POTION = 2, RARE_CANDY = 2 },
+      options = { musicVol = 7, musicFilter = 0 },
     },
   }
 end
@@ -365,7 +423,29 @@ do
   assert(battle.player.sprite == "sprite:CLEFABLE", "active battler sprite was not refreshed")
   assert(battle.player.stages.attack == 2, "battle stat stages were lost")
   assert(battle.player.substituteHP == 11, "volatile battle state was lost")
-  assert(music.battle >= 1, "battle music was not restored after Stone evolution")
+  assert(music.battle == 0, "battle music was restarted after Stone evolution")
+  assert(music.direct == 0, "default-OFF evolution music reached the main Music source")
+  assert(music.restore == 0, "EvolutionState restoreMap was not suppressed in battle")
+  assert(#music.volumes == 0,
+    "default-OFF evolution music changed battle music volume")
+end
+
+-- 1b) Optional ON mode: evolution cue stays off the main Music source and
+-- the separate overlay leaves the still-running battle track untouched.
+do
+  modOptionValues.evolution_music = true
+  local beforeVolumes = #music.volumes
+  local mon = { species = "CLEFAIRY", level = 30, hp = 60, stats = { hp = 65 }, moves = {} }
+  local game = newGame({ mon })
+  local battle = newBattle(game, mon)
+  local result, _, extra = ItemEffects.use(game.data, game.save, "MOON_STONE", mon, battle)
+  assert(result == "consumed" and extra and extra.evolveTo == "CLEFABLE")
+  Evolution.evolve(game, mon, extra.evolveTo, nil, "ITEM")
+  assert(music.direct == 0, "ON-mode evolution music replaced the main battle Music source")
+  assert(music.restore == 0, "ON-mode EvolutionState restoreMap was not suppressed")
+  assert(#music.volumes == beforeVolumes,
+    "ON mode must not change the battle music volume")
+  modOptionValues.evolution_music = false
 end
 
 -- 2) Invalid Stone target: bypass the battle gate but preserve vanilla
@@ -645,4 +725,4 @@ do
   assert(battle.player.sprite == activeSprite, "bench Rare Candy changed active sprite")
 end
 
-print("PASS: evolve_in_battle v1.0.1 smoke tests")
+print("PASS: evolve_in_battle v1.0.2 smoke tests")

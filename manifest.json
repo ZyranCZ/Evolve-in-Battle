@@ -1,7 +1,7 @@
 {
   "id": "evolve_in_battle",
   "name": "Evolve in Battle",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "github": "ZyranCZ/Evolve-in-Battle",
   "entry": "main.lua",
   "api": 2,

@@ -1,4 +1,4 @@
--- Integration regression for Evolve in Battle v1.0.0 + EXP Share Modes 1.0.0.
+-- Integration regression for Evolve in Battle v1.0.2 + EXP Share Modes 1.0.0.
 -- Focus: Modern Progressive awards a never-sent-out bench mon outside battle.exp_award.
 
 local scriptPath = debug.getinfo(1, "S").source:sub(2)
@@ -54,8 +54,17 @@ end
 package.preload["src.inventory.ItemEffects"] = function()
   return { use = function() return "failed", {} end }
 end
+package.preload["src.ui.EvolutionState"] = function()
+  return { update = function() end }
+end
+
 package.preload["src.core.Music"] = function()
-  return { playBattle = function() end, playVictory = function() end }
+  return {
+    play = function() end, restoreMap = function() end,
+    special = function() return "EVOLUTION" end,
+    setVolumeLevel = function() end,
+    playBattle = function() end, playVictory = function() end,
+  }
 end
 package.preload["src.ui.BagMenu"] = function()
   return { new = function() return { onChoose = function() end } end }
@@ -106,6 +115,15 @@ end
 
 local logs = {}
 local mod = {
+  options = {
+    define = function(self, defs)
+      self.values = self.values or {}
+      for _, def in ipairs(defs or {}) do
+        if self.values[def.key] == nil then self.values[def.key] = def.default end
+      end
+    end,
+    get = function(self, key) return self.values and self.values[key] end,
+  },
   hooks = { wrap = function(self, name, fn) hooks[name] = fn end },
   events = {
     on = function(self, name, fn)

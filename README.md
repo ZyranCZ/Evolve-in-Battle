@@ -1,4 +1,4 @@
-# Evolve in Battle — v1.0.1
+# Evolve in Battle — v1.0.2
 
 A Gen1Recomp 0.1.75 gameplay mod that allows Pokémon to evolve **during an active battle** for a more anime-like experience.
 
@@ -87,6 +87,16 @@ This preserves battle-only state such as stat stages and other volatile effects 
 
 A benched Pokémon evolving never replaces or refreshes the active battler.
 
+
+### Seamless battle music
+
+During an in-battle evolution, the current battle or victory theme keeps playing continuously from the same position and is never restarted.
+
+The mod option **EVOLUTION MUSIC** controls the evolution theme:
+
+- **OFF (default):** no evolution music plays; battle/victory music continues alone at normal volume.
+- **ON:** evolution music plays simultaneously with the battle/victory music. Neither track is ducked or otherwise volume-adjusted by the mod.
+
 ## Compatibility
 
 - **Gen1Recomp:** exactly `0.1.75`
@@ -99,7 +109,7 @@ The exact Gen1Recomp version is intentionally pinned because Stone/Rare Candy su
 
 ## Installation
 
-Import `evolve_in_battle-v1.0.1.zip` through Gen1Recomp's mod manager, enable **Evolve in Battle**, and restart the game when changing the installed mod set.
+Import `evolve_in_battle-v1.0.2.zip` through Gen1Recomp's mod manager, enable **Evolve in Battle**, and restart the game when changing the installed mod set.
 
 ## Verified release scenarios
 

@@ -1,8 +1,12 @@
 # Changelog
 
-## 1.0.1
+## 1.0.2
 
-- Added native Gen1Recomp GitHub release update metadata.
+- Battle/victory music now continues uninterrupted through in-battle evolutions without restarting.
+- Added **EVOLUTION MUSIC** mod option.
+- **OFF (default):** suppresses evolution music and leaves battle/victory music fully unchanged.
+- **ON:** plays evolution music simultaneously with battle/victory music at the normal configured music volume; no ducking is applied.
+- Vanilla field-evolution music behavior remains unchanged.
 
 ## 1.0.0
 
