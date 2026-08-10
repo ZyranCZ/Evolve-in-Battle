@@ -17,36 +17,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify source baseline
+      - name: Restore verified 1.0.2 source
         run: |
-          test "$(git hash-object main.lua)" = "d39f384964e30fbe647ead56ac01ffea7200a165"
-          test "$(git hash-object manifest.json)" = "679c9dfeb3ff1ee0e288c00e95e548922f9e8786"
-
-      - name: Apply 1.0.2 release patch
-        run: |
-          base64 -d release-1.0.2.patch.gz.b64 | gunzip > /tmp/eib.patch
-          test "$(sha256sum /tmp/eib.patch | awk '{print $1}')" = "b77faeb39a4ba6082dfacb5ef4d9e0ed9b20324920dc4a4795276e58131b997e"
-          git apply --check /tmp/eib.patch
-          git apply /tmp/eib.patch
+          test "$(sha256sum release-1.0.2-source.tar.gz.b64 | awk '{print $1}')" = "d39af8ed34d8da4f7a20929ad36cb461b6f02815449907babc64971703512b15"
+          base64 -d release-1.0.2-source.tar.gz.b64 > /tmp/eib-source.tar.gz
+          test "$(sha256sum /tmp/eib-source.tar.gz | awk '{print $1}')" = "61f85412a9b809209fc992df72d95c53b90cf513c0df8c301454259dcd1a3ef5"
+          tar -xzf /tmp/eib-source.tar.gz
+          grep -q '"version": "1.0.2"' manifest.json
+          grep -q '"experimental": false' manifest.json
+          ! grep -q 'Music.setVolumeLevel' main.lua
 
       - name: Run smoke tests
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq lua5.4
-          lua5.4 tests/smoke.lua
-          lua5.4 tests/smoke_exp_share.lua
+          sudo apt-get install -y -qq texlive-binaries
+          texlua tests/smoke.lua
+          texlua tests/smoke_exp_share.lua
 
-      - name: Build stable ZIP and commit source
+      - name: Build and commit 1.0.2
         id: build
         run: |
-          rm -f .github/workflows/publish-1.0.2.yml release-1.0.2.patch.gz.b64
+          rm -f evolve_in_battle-v1.0.2.zip
           zip -qr evolve_in_battle-v1.0.2.zip main.lua manifest.json README.md CHANGELOG.md DIFFERENCES.md tests
           unzip -t evolve_in_battle-v1.0.2.zip
           SHA256="$(sha256sum evolve_in_battle-v1.0.2.zip | awk '{print $1}')"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- main.lua manifest.json README.md CHANGELOG.md DIFFERENCES.md tests evolve_in_battle-v1.0.2.zip .github/workflows/publish-1.0.2.yml release-1.0.2.patch.gz.b64
+          git add -- main.lua manifest.json README.md CHANGELOG.md DIFFERENCES.md tests evolve_in_battle-v1.0.2.zip
           git commit -m "Release 1.0.2"
           git push origin HEAD:main
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
