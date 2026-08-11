@@ -1,6 +1,6 @@
-# Evolve in Battle — v1.0.2
+# Evolve in Battle — v1.0.3
 
-A Gen1Recomp 0.1.75 gameplay mod that allows Pokémon to evolve **during an active battle** for a more anime-like experience.
+A Gen1Recomp gameplay mod that allows Pokémon to evolve **during an active battle** for a more anime-like experience.
 
 It supports:
 
@@ -99,17 +99,17 @@ The mod option **EVOLUTION MUSIC** controls the evolution theme:
 
 ## Compatibility
 
-- **Gen1Recomp:** exactly `0.1.75`
+- **Gen1Recomp:** no engine-version pin; the mod always attempts to load on newer releases
 - **Mod API:** `2`
 - **EXP Share Modes:** optional; tested with `1.0.0`
 - **Link fingerprint:** affected
 - **Permission:** `engine_internals`
 
-The exact Gen1Recomp version is intentionally pinned because Stone/Rare Candy support requires narrow wrappers around engine-internal modules that are not part of the stable public mod API.
+Stone/Rare Candy support still uses narrow wrappers around engine-internal modules that are not part of the stable public mod API. Because engine-version pins cause harmless game updates to disable the mod pre-emptively, this release deliberately does not declare `game_version`. Compatibility is best-effort: update the mod only if an actual engine change breaks it.
 
 ## Installation
 
-Import `evolve_in_battle-v1.0.2.zip` through Gen1Recomp's mod manager, enable **Evolve in Battle**, and restart the game when changing the installed mod set.
+Import `evolve_in_battle-v1.0.3.zip` through Gen1Recomp's mod manager, enable **Evolve in Battle**, and restart the game when changing the installed mod set.
 
 ## Verified release scenarios
 

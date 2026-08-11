@@ -1,4 +1,4 @@
--- Headless smoke test for Evolve in Battle v1.0.2.
+-- Headless smoke test for Evolve in Battle v1.0.3.
 -- Run from the mod folder with: texlua tests/smoke.lua
 
 local scriptPath = debug.getinfo(1, "S").source:sub(2)
@@ -128,7 +128,7 @@ package.preload["src.inventory.ItemEffects"] = function()
   function I.use(data, save, id, mon, battle)
     table.insert(originalItemCalls, { id = id, battle = battle, mon = mon })
 
-    -- Reproduce the important vanilla 0.1.75 invariant: Stones fail solely
+    -- Reproduce the important vanilla invariant: Stones fail solely
     -- because battle ~= nil before the actual Stone validation runs.
     local stone = id == "MOON_STONE" or id == "THUNDER_STONE"
     if battle and (stone or id == "RARE_CANDY") then
@@ -324,9 +324,9 @@ entry(mod)
 assert(ItemEffects.use ~= originalUse, "ItemEffects.use was not directly overridden")
 assert(Evolution.evolve ~= originalEvolve, "Evolution.evolve was not wrapped")
 assert(BagMenu.new ~= originalBagNew, "BagMenu.new was not directly wrapped")
-assert(BattleState.awardExp == originalAwardExp, "v1.0.2 should not monkey-patch BattleState.awardExp")
+assert(BattleState.awardExp == originalAwardExp, "v1.0.3 should not monkey-patch BattleState.awardExp")
 assert(hooks["battle.exp_award"], "battle.exp_award hook was not registered")
-assert(not listeners["battle.exp_gained"], "v1.0.2 fallback should not depend on battle.exp_gained")
+assert(not listeners["battle.exp_gained"], "v1.0.3 fallback should not depend on battle.exp_gained")
 assert(modOptionDefs.evolution_music and modOptionDefs.evolution_music.type == "toggle",
   "EVOLUTION MUSIC toggle was not registered")
 assert(modOptionValues.evolution_music == false,
@@ -725,4 +725,13 @@ do
   assert(battle.player.sprite == activeSprite, "bench Rare Candy changed active sprite")
 end
 
-print("PASS: evolve_in_battle v1.0.2 smoke tests")
+do
+  local f = assert(io.open(ROOT .. "/manifest.json", "r"))
+  local manifestText = f:read("*a")
+  f:close()
+  assert(not manifestText:match('"game_version"%s*:'), "release manifest must not pin game_version")
+  assert(manifestText:match('"experimental"%s*:%s*false'), "release manifest must keep experimental=false")
+  assert(manifestText:match('"version"%s*:%s*"1%.0%.3"'), "release manifest version must be 1.0.3")
+end
+
+print("PASS: evolve_in_battle v1.0.3 smoke tests")

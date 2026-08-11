@@ -1,5 +1,5 @@
--- Evolve in Battle v1.0.2
--- Target: Gen1Recomp 0.1.75 / Mod API 2
+-- Evolve in Battle v1.0.3
+-- Target: Gen1Recomp Mod API 2 (no engine-version pin)
 --
 -- Stable release. Supports in-battle evolution from ordinary EXP, EXP Share Modes bench EXP,
 -- Evolution Stones, and Rare Candy:
@@ -14,7 +14,7 @@
 --     volatile battle state.
 --
 -- The ItemEffects/Evolution/BagMenu function wrappers are engine-internal overrides and are why the
--- manifest declares engine_internals and pins game_version to 0.1.75.
+-- manifest declares engine_internals; engine version is intentionally not pinned.
 
 return function(mod)
   -- In-battle audio policy. OFF is deliberately the default: the battle or
@@ -468,7 +468,7 @@ return function(mod)
   -- Rare Candy in the battle BAG
   ---------------------------------------------------------------------------
 
-  -- Vanilla 0.1.75 intentionally refuses RARE_CANDY whenever battle ~= nil.
+  -- Vanilla intentionally refuses RARE_CANDY whenever battle ~= nil.
   -- Its successful field-use path already performs the canonical level/EXP/
   -- stat/HP/happiness mutation and returns extra.leveledTo, so reuse exactly
   -- that calculation with battle=nil and own only the battle-specific UI tail.
@@ -695,8 +695,8 @@ return function(mod)
   EvolutionState.update = wrappedEvolutionUpdate
 
   if wrappedExpShareHandler then
-    mod.log:info("Evolve in Battle v1.0.2 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF, Gen1Recomp 0.1.75)")
+    mod.log:info("Evolve in Battle v1.0.3 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
   else
-    mod.log:info("Evolve in Battle v1.0.2 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF, Gen1Recomp 0.1.75)")
+    mod.log:info("Evolve in Battle v1.0.3 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
   end
 end

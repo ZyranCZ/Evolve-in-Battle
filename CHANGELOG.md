@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+- Removed the `game_version` engine pin from the manifest.
+- Future Gen1Recomp releases no longer disable the mod solely because the engine version changed.
+- Compatibility is now best-effort: the mod attempts to load on newer engine releases and only needs an update when an actual incompatibility appears.
+- `experimental` remains `false`; gameplay behavior is unchanged from 1.0.2.
+
 ## 1.0.2
 
 - Battle/victory music now continues uninterrupted through in-battle evolutions without restarting.

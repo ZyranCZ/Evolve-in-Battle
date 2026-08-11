@@ -1,4 +1,4 @@
-# Differences from vanilla Gen1Recomp 0.1.75
+# Differences from vanilla Gen1Recomp
 
 Evolve in Battle intentionally changes when and where evolution can occur while retaining vanilla evolution eligibility and species data.
 
@@ -24,7 +24,7 @@ Vanilla Gen1Recomp also rejects Rare Candy during battle. This mod enables a bat
 
 ## Engine-internal scope
 
-The public Mod API does not currently expose every seam required for these behaviors. The release therefore declares `engine_internals` and is pinned to Gen1Recomp 0.1.75.
+The public Mod API does not currently expose every seam required for these behaviors. The release therefore declares `engine_internals`, but intentionally does **not** pin a Gen1Recomp engine version. The mod attempts to load on future engine releases and is updated only when a real compatibility break appears.
 
 ## Battle music continuity
 

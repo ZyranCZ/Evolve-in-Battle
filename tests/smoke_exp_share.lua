@@ -1,4 +1,4 @@
--- Integration regression for Evolve in Battle v1.0.2 + EXP Share Modes 1.0.0.
+-- Integration regression for Evolve in Battle v1.0.3 + EXP Share Modes 1.0.0.
 -- Focus: Modern Progressive awards a never-sent-out bench mon outside battle.exp_award.
 
 local scriptPath = debug.getinfo(1, "S").source:sub(2)
