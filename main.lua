@@ -1,4 +1,4 @@
--- Evolve in Battle v2.0.0
+-- Evolve in Battle v2.0.1
 -- Target: Gen1Recomp Mod API 2 (no engine-version pin)
 --
 -- Stable release. Supports in-battle evolution from ordinary EXP, EXP Share Modes bench EXP,
@@ -12,6 +12,10 @@
 --     exactly one item and one player turn after the full flow finishes.
 --   * Active-battler cached stats/species are synchronized without rebuilding
 --     volatile battle state.
+--
+-- Gold additionally wraps Gen2PackMenu's BattlePack hand-off so field-only
+-- Rare Candy / EVOLVE_ITEM rows can reach the battle handler instead of being
+-- rejected early as ITEMMENU_NOUSE. Unrelated field-only items stay vanilla.
 --
 -- The ItemEffects/Evolution/BagMenu function wrappers are engine-internal overrides and are why the
 -- manifest declares engine_internals; engine version is intentionally not pinned.
@@ -705,9 +709,9 @@ local function installGen1(mod)
   EvolutionState.update = wrappedEvolutionUpdate
 
   if wrappedExpShareHandler then
-    mod.log:info("Evolve in Battle v2.0.0 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.1 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
   else
-    mod.log:info("Evolve in Battle v2.0.0 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.1 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
   end
 end
 
@@ -722,6 +726,7 @@ local function installGen2(mod, liveGame)
   -- timing/context seams that Gold itself does not expose yet.
   local Battle = require("src.battle.gen2.Battle")
   local BattleState = require("src.ui.gen2.BattleState")
+  local PackMenu = require("src.ui.gen2.PackMenu")
   local Evolution = require("src.core.gen2.Evolution")
   local EvolutionAnim = require("src.ui.gen2.EvolutionAnim")
   local ItemEffects = require("src.core.gen2.ItemEffects")
@@ -1324,6 +1329,18 @@ local function installGen2(mod, liveGame)
         return showNoTurnMessage(state, mon and ItemEffects.TEXT_CANT_USE_ON_EGG)
       end
 
+      -- Pokémon Gold checks EVERSTONE in EvoStoneEffect before it sets
+      -- wForceEvolution and enters EvolvePokemon. Evolution.checkMon(force)
+      -- models only the later EvolvePokemon walk, so reproduce that outer
+      -- item-effect gate here or an in-battle Stone would incorrectly bypass
+      -- Everstone. A refusal consumes neither the Stone nor the battle turn.
+      local everstone = type(Evolution.holdsEverstone) == "function"
+        and Evolution.holdsEverstone(mon)
+        or mon.item == (Evolution.EVERSTONE or "EVERSTONE")
+      if everstone then
+        return showNoTurnMessage(state, ItemEffects.TEXT_NO_EFFECT)
+      end
+
       local entry = Evolution.checkMon(state.game.data, mon, {
         force = true,
         item = itemId,
@@ -1387,6 +1404,41 @@ local function installGen2(mod, liveGame)
     return vanillaUseItem(self, itemId, ...)
   end
 
+  -- Gold v0.1.78's BattlePack rejects ITEMMENU_NOUSE inside PackMenu BEFORE
+  -- BattleState:useItem is called. Rare Candy and evolution Stones are field-
+  -- only in vanilla Gold, so our BattleState override never saw them. Bypass
+  -- only that one Pack gate for the two feature classes this mod explicitly
+  -- adds; every unrelated NOUSE item remains on PackMenu's vanilla path.
+  local vanillaPackUseSelected = PackMenu.useSelected
+  local wrappedPackUseSelected
+  wrappedPackUseSelected = function(self, ...)
+    local inBattle = self and type(self.inBattle) == "function" and self:inBattle()
+    local row = inBattle and self.rows and self.rows[self.index] or nil
+    local itemId = row and row.id or nil
+    local game = self and self.game or nil
+    local data = game and game.data or nil
+    local allowed = itemId == "RARE_CANDY" or evolutionItemExists(data, itemId)
+
+    if inBattle and row and allowed then
+      -- Match PackMenu:useSelected's normal hand-off path exactly, except for
+      -- skipping its ITEMMENU_NOUSE refusal. The BattleState that opened this
+      -- PACK still owns target selection, validation, item consumption and the
+      -- battle turn.
+      if type(self.storeCursor) == "function" then self:storeCursor() end
+      if self.give then
+        if self.onChoose then self.onChoose(row.id, row.count) end
+        return
+      end
+      if self.onChoose then
+        self.staleRows = true
+        return self.onChoose(row.id, row.count)
+      end
+      return
+    end
+
+    return vanillaPackUseSelected(self, ...)
+  end
+
   ---------------------------------------------------------------------------
   -- Install last: no half-installed internal overrides after setup failure
   ---------------------------------------------------------------------------
@@ -1397,6 +1449,7 @@ local function installGen2(mod, liveGame)
   BattleState.pushAll = wrappedPushAll
   BattleState.advanceQueue = wrappedAdvanceQueue
   BattleState.useItem = wrappedUseItem
+  PackMenu.useSelected = wrappedPackUseSelected
   EvolutionAnim.new = wrappedEvolutionAnimNew
   EvolutionAnim.update = wrappedEvolutionAnimUpdate
   EvolutionAnim.nextLearn = wrappedEvolutionAnimNextLearn

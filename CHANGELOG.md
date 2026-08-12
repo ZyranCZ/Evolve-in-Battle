@@ -1,5 +1,15 @@
 # Evolve in Battle — Changelog
 
+## 2.0.1 — Gold BattlePack item-use fix
+
+- Fixed Pokémon Gold / Gen1Recomp v0.1.78 refusing Rare Candy and Evolution Stones with “This isn't the time to use that!” before the mod's battle-item handler could run.
+- Added a narrow `Gen2PackMenu` battle hand-off for `RARE_CANDY` and items discovered from native Gold `EVOLVE_ITEM` rows.
+- All six Gold Stone paths (Fire, Water, Thunder, Leaf, Moon, Sun) now cross the PACK gate and continue into the existing native evolution validation/animation path.
+- Unrelated `ITEMMENU_NOUSE` items remain vanilla-blocked; trade-held evolution items remain trade-only.
+- Rare Candy still delegates to Gold's native Rare Candy and `afterRareCandy` flow, so eligible level/happiness/stat evolution follows immediately.
+- Everstone is respected with original Gen II rules: it blocks level/happiness/stat/trade evolution and also blocks Evolution Stone use before forced evolution begins. Everstone-blocked Stones consume neither the item nor the battle turn.
+- Added a direct v0.1.78 BattlePack regression fixture so this exact early-gate bug is covered headlessly.
+
 ## 2.0.0 — Stable Generation 2 release
 
 - Promoted the consolidated Gold backend from `1.0.5-goldtest3` to the first stable Generation 2 release.
