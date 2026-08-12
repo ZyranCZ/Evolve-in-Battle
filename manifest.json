@@ -1,7 +1,7 @@
 {
   "id": "evolve_in_battle",
   "name": "Evolve in Battle",
-  "version": "1.0.3",
+  "version": "2.0.0",
   "github": "ZyranCZ/Evolve-in-Battle",
   "entry": "main.lua",
   "api": 2,
@@ -16,5 +16,9 @@
   ],
   "optional_dependencies": [
     "exp_share_modes@>=1.0.0"
+  ],
+  "games": [
+    "gen1",
+    "gold"
   ]
 }

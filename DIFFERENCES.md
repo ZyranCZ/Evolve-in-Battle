@@ -1,33 +1,61 @@
 # Differences from vanilla Gen1Recomp
 
-Evolve in Battle intentionally changes when and where evolution can occur while retaining vanilla evolution eligibility and species data.
+Evolve in Battle intentionally changes **when and where** evolution can occur. It does not replace the game's species evolution data or invent a second Gold evolution engine.
 
-## Level-up evolution
+## Gen 1 — Red / Blue / Yellow
 
-Vanilla Gen1Recomp defers level-based evolution until after battle. This mod moves the evolution check into the battle EXP sequence after the level-up/stat/move UI has completed.
+### Level-up evolution
 
-The check applies to every party member whose level increased during the relevant EXP distribution, including benched Pokémon.
+Vanilla Gen1Recomp defers level-based evolution until after battle. The existing Gen 1 backend moves the check into the battle EXP sequence after the level/stat/move UI. It applies to every party member whose level increased in the relevant distribution, including compatible bench EXP supplied by EXP Share Modes.
 
-## EXP Share Modes integration
+### Evolution Stones / Rare Candy
 
-EXP Share Modes Modern Progressive can award additional EXP to never-sent-out bench Pokémon outside vanilla `battle.exp_award`. When its exported `_enemyMonFainted` handler is available, this mod uses that full distribution boundary so those level gains receive the same in-battle evolution check.
+The existing Gen 1 battle paths remain unchanged from v1.0.3: five Gen 1 Stones and battle Rare Candy reuse the established vanilla-compatible logic.
 
-## Evolution Stones
+### Battle music
 
-Vanilla Gen1Recomp rejects Evolution Stones while a battle is active. This mod bypasses only that timing prohibition for FIRE, WATER, THUNDER, LEAF and MOON STONE, then delegates compatibility/evolution rules back to vanilla logic.
+For this mod's in-battle evolutions, EVOLUTION MUSIC OFF preserves the current battle/victory source; ON mixes the evolution cue beside it.
 
-A successful Stone use spends the player's battle action after the evolution flow finishes.
+## Gold
 
-## Rare Candy
+### Evolution timing, not eligibility
 
-Vanilla Gen1Recomp also rejects Rare Candy during battle. This mod enables a battle-specific Rare Candy flow that reuses vanilla level/stat mutation, then performs the normal level-up UI, move learning and level-evolution eligibility check before spending the player's battle action.
+Gold's native `Evolution.checkMon` remains the authority for level, happiness/time, stat and item evolution conditions. The mod moves that decision into the battle sequence after the relevant level-up move handling and before normal battle continuation.
+
+### Native EXP and held EXP.SHARE
+
+Gold's own `Battle:awardExperience` remains the EXP authority. The mod observes which party slots actually crossed levels. It does not port the Gen 1 EXP Share Modes arithmetic into Gold.
+
+### Party record / battle state
+
+Native `Evolution.apply` creates the evolved Gen 2 party record. The mod then synchronizes the existing active battle/HUD references if that slot is active; it never starts a replacement battle. Benched evolution does not touch the active battler.
+
+### Evolved-species exact-level moves
+
+Gold's evolution code can grant moves the **new species** learns exactly at the evolution level. A free slot stays entirely vanilla. If all four move slots are full, the current upstream evolution screen by itself can only report the pending move; v2.0.0 bridges that pending move into native `Game2:learnMoveOn()`.
+
+Consequently the Forget Move selection, HM refusal, “Stop learning” branch and asynchronous UI remain Gold-native. Multiple exact-level moves are processed one at a time before battle continuation.
+
+### Evolution items
+
+The Gold backend discovers native `EVOLVE_ITEM` rows instead of inheriting the Gen 1 five-Stone list. Fire, Water, Thunder, Leaf, Moon and Sun Stone use the same data-driven path. Trade-held items remain `EVOLVE_TRADE` triggers and are never treated as battle Stones.
+
+### Rare Candy
+
+Gold already implements Rare Candy arithmetic and `Game2:afterRareCandy`; vanilla battle PACK context simply does not normally allow the item. The mod bypasses that context prohibition, then delegates the effect, level moves and subsequent evolution back to Gold.
+
+### Duplicate post-battle evolution
+
+A level-derived in-battle prompt that was actually handled clears that slot's post-battle evolvable flag on success or B-cancel. If the mod cannot open the in-battle evolution screen, the flag is restored so vanilla Gold remains the fallback.
+
+### Battle music
+
+Only while an evolution initiated by this mod is active, a narrow Gold audio guard prevents `Gen2EvolutionAnim` from replacing the underlying battle/victory source. EVOLUTION MUSIC ON renders a separate evolution source with the current Gold music volume/filter settings. That overlay is explicitly stopped at Gold's post-animation music boundary before any full-moveset Forget Move UI begins.
+
+Normal Gold evolutions outside the mod's in-battle context remain vanilla.
 
 ## Engine-internal scope
 
-The public Mod API does not currently expose every seam required for these behaviors. The release therefore declares `engine_internals`, but intentionally does **not** pin a Gen1Recomp engine version. The mod attempts to load on future engine releases and is updated only when a real compatibility break appears.
+The public Mod API still does not expose every seam required for precise Gold battle queue insertion, PACK timing, active-reference synchronization and evolution-movie audio isolation. The package therefore retains `engine_internals` while keeping generation-specific code isolated.
 
-## Battle music continuity
-
-- In-battle evolution no longer replaces the current battle/victory music source.
-- Evolution music is synthesized/played on a separate source and mixed over the still-running battle track.
-- Field evolutions retain vanilla music switching behavior.
+There is deliberately no `game_version` gate.

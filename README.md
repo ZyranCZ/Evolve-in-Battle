@@ -1,127 +1,109 @@
-# Evolve in Battle — v1.0.3
+# Evolve in Battle — v2.0.0
 
 A Gen1Recomp gameplay mod that allows Pokémon to evolve **during an active battle** for a more anime-like experience.
 
-It supports:
+Version **2.0.0** is the first stable release with dedicated **Pokémon Gold / Generation 2** support while retaining the existing Red / Blue / Yellow backend.
 
-- level-up evolution from normal battle EXP,
-- level-up evolution for benched Pokémon,
-- EXP Share Modes bench EXP, including never-sent-out party members,
-- Evolution Stones from the battle BAG,
-- Rare Candy from the battle BAG,
-- active and benched targets.
+## Supported games
 
-## Level-up evolution from EXP
+- Pokémon Red
+- Pokémon Blue
+- Pokémon Yellow
+- Pokémon Gold
 
-The intended sequence is:
+The manifest explicitly declares `games: ["gen1", "gold"]`, keeps `experimental: false`, and deliberately contains **no `game_version` pin**. The mod therefore does not refuse to run solely because the Gen1Recomp engine version changes.
 
-**EXP → level-up → stat box → normal level-up moves → evolution check → evolution → evolved-species exact-level moves → battle continues**
+## Level-up evolution during battle
 
-The eligibility check runs for every party Pokémon that actually gained one or more levels from that EXP distribution, not only the active battler.
+Eligible Pokémon can evolve immediately after gaining a level in battle instead of waiting until the battle ends. This includes active Pokémon and eligible benched recipients.
 
-This includes:
+On Gold the intended order is:
 
-- the currently active Pokémon,
-- a Pokémon that participated earlier and was switched out,
-- EXP.ALL recipients,
-- never-sent-out bench Pokémon receiving EXP through compatible EXP-sharing mods.
+**EXP → level-up → normal level-up moves → evolution check → evolution → evolved-species exact-level moves → battle continues**
 
-If several party Pokémon become evolution-eligible from the same KO, their checks are queued in party order.
+Several eligible Pokémon from the same EXP distribution are processed in party order. Normal level, happiness and stat evolutions remain cancelable with **B**.
 
-Level-based evolutions remain cancelable with **B**. Once an in-battle evolution prompt has been handled, the same level-up is not offered again after the battle.
+## Native Gold evolution rules
 
-## EXP Share Modes compatibility
+The Gold backend delegates eligibility and record rebuilding to Gold's own Gen 2 systems. This preserves native behavior for:
 
-`exp_share_modes` is an optional dependency.
+- level evolutions,
+- happiness/time evolutions,
+- Tyrogue-style Attack/Defense evolutions,
+- Everstone,
+- native evolution data and hooks,
+- Pokédex updates and Gen 2 party-record rebuilding.
 
-When EXP Share Modes exposes its `_enemyMonFainted` integration handler, Evolve in Battle wraps that complete EXP-distribution boundary instead of relying only on vanilla `battle.exp_award`.
+Trade evolutions remain trade evolutions. King's Rock, Metal Coat, Dragon Scale and Up-Grade are not converted into battle-use evolution items.
 
-This is necessary for **Modern Progressive**, where living nonparticipants can receive bench EXP outside vanilla `battle.exp_award`.
+## Evolved-species move learning
 
-The complete order remains:
+Gold species can learn a move at the exact level at which they evolve. Evolve in Battle preserves that ordering.
 
-**participant EXP → custom bench EXP → bench level/stat/move UI → evolution checks → battle continuation**
-
-If EXP Share Modes is not installed, Evolve in Battle uses the vanilla `battle.exp_award` timing seam.
+If the evolved Pokémon already knows four moves, the mod hands the pending move to Gold's native `Game2:learnMoveOn()` flow. The normal Forget Move selection, HM refusal, **Stop learning** branch and asynchronous UI therefore remain owned by Gold rather than being reimplemented by the mod. Multiple pending moves are processed one at a time before battle continuation.
 
 ## Evolution Stones in battle
 
-The following Stones can be used from the battle BAG:
+### Red / Blue / Yellow
 
-- FIRE STONE
-- WATER STONE
-- THUNDER STONE
-- LEAF STONE
-- MOON STONE
+Supported battle-use Stones:
 
-A valid Stone:
+- Fire Stone
+- Water Stone
+- Thunder Stone
+- Leaf Stone
+- Moon Stone
 
-1. uses the normal vanilla Stone compatibility rules,
-2. consumes one Stone,
-3. runs the standard non-cancelable Stone evolution,
-4. learns any evolved-species move belonging exactly to the current level,
-5. returns to the same battle,
-6. consumes the player's turn.
+### Gold
 
-Invalid Stones do not consume the item or the turn. Yellow's starter Pikachu keeps its normal Thunder Stone refusal.
+The Gold backend discovers native `EVOLVE_ITEM` rows and supports:
 
-Stones can target either the active Pokémon or a benched party member.
+- Fire Stone
+- Water Stone
+- Thunderstone
+- Leaf Stone
+- Moon Stone
+- Sun Stone
+
+A valid use consumes exactly one item and one player action. Invalid targets and Eggs consume neither.
 
 ## Rare Candy in battle
 
-Rare Candy can be used from the battle BAG on any party Pokémon, including a benched Pokémon.
+Rare Candy can be used during battle on active or benched party members. Gold reuses its native Rare Candy arithmetic and follow-up move/evolution flow. Level-100 Pokémon and Eggs are refused without consuming the item or the turn.
 
-A successful Rare Candy follows:
+## EXP Share support
 
-**+1 level → stat/HP update → level-up message → stat box → level-up moves → evolution eligibility check → optional evolution → battle continues**
+On Red / Blue / Yellow, the existing optional **EXP Share Modes** integration remains available for compatible bench EXP behavior.
 
-If the Pokémon is eligible for a level evolution, the normal evolution sequence starts immediately in battle. The evolution can still be canceled with **B**.
-
-A successful Rare Candy consumes one item and one player turn even if the evolution is canceled. A level-100 target keeps the Candy and does not spend the turn.
+On Gold, native held **EXP.SHARE** remains the authority. Evolve in Battle observes the resulting level gains rather than replacing Gen 2 EXP calculations.
 
 ## Active battler synchronization
 
-When the active Pokémon evolves, the mod refreshes only the species-dependent cached battle view instead of rebuilding the complete battler.
+When the active Pokémon evolves, the existing battle is kept alive and Gold's battle/HUD references are synchronized to the evolved party record. The mod does not create a replacement battle, so battle-owned stages and other battle state remain intact. Benched evolution leaves the active battler untouched.
 
-This preserves battle-only state such as stat stages and other volatile effects while updating the evolved species, canonical stats, typing, moves and sprite where appropriate.
+## Seamless battle music
 
-A benched Pokémon evolving never replaces or refreshes the active battler.
+The mod includes **EVOLUTION MUSIC**:
 
+- **OFF (default):** the current battle/victory track continues without being replaced or restarted.
+- **ON:** the evolution cue plays simultaneously on a separate source while the underlying battle/victory track continues.
 
-### Seamless battle music
-
-During an in-battle evolution, the current battle or victory theme keeps playing continuously from the same position and is never restarted.
-
-The mod option **EVOLUTION MUSIC** controls the evolution theme:
-
-- **OFF (default):** no evolution music plays; battle/victory music continues alone at normal volume.
-- **ON:** evolution music plays simultaneously with the battle/victory music. Neither track is ducked or otherwise volume-adjusted by the mod.
+On Gold the separate evolution cue follows the current music volume/filter options and ends before any evolved-species Forget Move flow. Normal evolutions outside the mod's in-battle path remain vanilla.
 
 ## Compatibility
 
-- **Gen1Recomp:** no engine-version pin; the mod always attempts to load on newer releases
-- **Mod API:** `2`
-- **EXP Share Modes:** optional; tested with `1.0.0`
-- **Link fingerprint:** affected
-- **Permission:** `engine_internals`
+```text
+Mod API:           2
+Version:           2.0.0
+Games:             gen1, gold
+Experimental:      false
+Engine-version pin absent
+Permission:        engine_internals
+Link fingerprint:  affected
+```
 
-Stone/Rare Candy support still uses narrow wrappers around engine-internal modules that are not part of the stable public mod API. Because engine-version pins cause harmless game updates to disable the mod pre-emptively, this release deliberately does not declare `game_version`. Compatibility is best-effort: update the mod only if an actual engine change breaks it.
+`engine_internals` is currently required because the public Mod API does not expose every precise battle-queue, PACK, active-reference and evolution-audio seam needed by the mod.
 
 ## Installation
 
-Import `evolve_in_battle-v1.0.3.zip` through Gen1Recomp's mod manager, enable **Evolve in Battle**, and restart the game when changing the installed mod set.
-
-## Verified release scenarios
-
-The included smoke tests cover:
-
-- active EXP level evolution,
-- benched EXP level evolution,
-- multiple party evolutions from one EXP distribution,
-- Evolution Stone on active and benched Pokémon,
-- invalid Stone target,
-- Yellow starter Pikachu Stone refusal,
-- Rare Candy on active and benched Pokémon,
-- Rare Candy without an eligible evolution,
-- Rare Candy at level 100,
-- EXP Share Modes Modern Progressive evolution of a never-sent-out bench Pokémon.
+Import `evolve_in_battle-v2.0.0.zip` through Gen1Recomp's Mod Manager and enable it normally for the game being launched.
