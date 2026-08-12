@@ -1,5 +1,17 @@
 # Evolve in Battle — Changelog
 
+## 2.0.2 — Gold overworld Evolution Stone fix
+
+- Fixed Pokémon Gold / Gen1Recomp v0.1.78 doing nothing when an Evolution Stone is used from the PACK outside battle.
+- Root cause: Gold's `Game2:useFieldItem()` correctly routes non-TM party items toward `usePartyItem()`, but `ItemEffects.partyAction()` explicitly has no evolution-Stone action yet, so the call returned before `Gen2PartyMenu` could open.
+- Added the missing field-only `EVOLVE_ITEM` bridge: Stone → native Gold party picker → native evolution eligibility → native `Gen2EvolutionAnim`.
+- Supports all native Gold `EVOLVE_ITEM` rows dynamically (Fire, Water, Thunder, Leaf, Moon and Sun Stone in vanilla data).
+- Invalid targets and Eggs consume nothing.
+- Everstone is checked before forced Stone evolution, matching original Gold's `EvoStoneEffect`; an Everstone-blocked Stone is not consumed.
+- Stone consumption now occurs only after the native evolution animation commits the evolved party record.
+- Non-Stone field items and PACK GIVE/TOSS behavior continue to use Gold's original paths.
+- Added a headless regression that reproduces the v0.1.78 field Stone no-op before the mod installs and verifies all six Stones, invalid target, Egg, Everstone, and non-Stone delegation after the fix.
+
 ## 2.0.1 — Gold BattlePack item-use fix
 
 - Fixed Pokémon Gold / Gen1Recomp v0.1.78 refusing Rare Candy and Evolution Stones with “This isn't the time to use that!” before the mod's battle-item handler could run.

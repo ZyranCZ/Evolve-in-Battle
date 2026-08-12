@@ -1,8 +1,8 @@
-# Evolve in Battle — v2.0.1
+# Evolve in Battle — v2.0.2
 
 A Gen1Recomp gameplay mod that allows Pokémon to evolve **during an active battle** for a more anime-like experience.
 
-Version **2.0.1** is the current stable release with dedicated **Pokémon Gold / Generation 2** support while retaining the existing Red / Blue / Yellow backend.
+Version **2.0.2** is the current stable release with dedicated **Pokémon Gold / Generation 2** support while retaining the existing Red / Blue / Yellow backend.
 
 ## Supported games
 
@@ -67,9 +67,21 @@ The Gold backend discovers native `EVOLVE_ITEM` rows and supports:
 
 A valid use consumes exactly one item and one player action. Invalid targets and Eggs consume neither.
 
-On Gold v0.1.78 these items are normally stopped one screen earlier by BattlePack because their item attributes are `ITEMMENU_NOUSE`. v2.0.1 adds a narrow PACK hand-off for **Rare Candy and native `EVOLVE_ITEM` items only**; unrelated field-only items keep Gold's normal “This isn't the time to use that!” refusal.
+On Gold v0.1.78 these items are normally stopped one screen earlier by BattlePack because their item attributes are `ITEMMENU_NOUSE`. v2.0.2 retains the narrow PACK hand-off for **Rare Candy and native `EVOLVE_ITEM` items only**; unrelated field-only items keep Gold's normal “This isn't the time to use that!” refusal.
 
 **Everstone follows native Generation II semantics:** it blocks level, happiness/stat, trade **and Evolution Stone** evolutions. An otherwise valid Rare Candy or Stone use therefore cannot evolve a holder. For a Stone refusal, neither the Stone nor the battle turn is consumed.
+
+## Evolution Stones outside battle — Gold
+
+Gold v0.1.78 contains an incomplete field-item port: `Game2:useFieldItem()` routes evolution Stones toward the party-item dispatcher, but `ItemEffects.partyAction()` has no Stone action, so selecting **USE** returns without opening the party list.
+
+v2.0.2 fills only this missing Gold path. Using a native `EVOLVE_ITEM` Stone outside battle now opens Gold's own party menu, validates the selected Pokémon with native evolution data, runs `Gen2EvolutionAnim`, and consumes the Stone only after the evolution commits.
+
+- invalid targets do not consume the Stone,
+- Eggs are refused,
+- Everstone blocks the Stone and the Stone is not consumed,
+- all six Gold Stone families use the same data-driven path,
+- normal **GIVE / TOSS / other field-item behavior** remains owned by Gold.
 
 ## Rare Candy in battle
 
@@ -98,7 +110,7 @@ On Gold the separate evolution cue follows the current music volume/filter optio
 
 ```text
 Mod API:           2
-Version:           2.0.1
+Version:           2.0.2
 Games:             gen1, gold
 Experimental:      false
 Engine-version pin absent
@@ -110,4 +122,4 @@ Link fingerprint:  affected
 
 ## Installation
 
-Import `evolve_in_battle-v2.0.1.zip` through Gen1Recomp's Mod Manager and enable it normally for the game being launched.
+Import `evolve_in_battle-v2.0.2.zip` through Gen1Recomp's Mod Manager and enable it normally for the game being launched.

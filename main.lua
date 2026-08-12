@@ -1,4 +1,4 @@
--- Evolve in Battle v2.0.1
+-- Evolve in Battle v2.0.2
 -- Target: Gen1Recomp Mod API 2 (no engine-version pin)
 --
 -- Stable release. Supports in-battle evolution from ordinary EXP, EXP Share Modes bench EXP,
@@ -15,7 +15,9 @@
 --
 -- Gold additionally wraps Gen2PackMenu's BattlePack hand-off so field-only
 -- Rare Candy / EVOLVE_ITEM rows can reach the battle handler instead of being
--- rejected early as ITEMMENU_NOUSE. Unrelated field-only items stay vanilla.
+-- rejected early as ITEMMENU_NOUSE. It also fills Gold v0.1.78's missing
+-- overworld EVOLVE_ITEM party-action path, so Stones work both inside and
+-- outside battle. Unrelated field-only items stay vanilla.
 --
 -- The ItemEffects/Evolution/BagMenu function wrappers are engine-internal overrides and are why the
 -- manifest declares engine_internals; engine version is intentionally not pinned.
@@ -709,9 +711,9 @@ local function installGen1(mod)
   EvolutionState.update = wrappedEvolutionUpdate
 
   if wrappedExpShareHandler then
-    mod.log:info("Evolve in Battle v2.0.1 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.2 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
   else
-    mod.log:info("Evolve in Battle v2.0.1 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.2 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
   end
 end
 
@@ -775,6 +777,14 @@ local function installGen2(mod, liveGame)
       end
     end
     return false
+  end
+
+  local function holdsEverstone(mon)
+    if not mon then return false end
+    if type(Evolution.holdsEverstone) == "function" then
+      return Evolution.holdsEverstone(mon) and true or false
+    end
+    return mon.item == (Evolution.EVERSTONE or "EVERSTONE")
   end
 
   local function activeIndex(battle)
@@ -1334,10 +1344,7 @@ local function installGen2(mod, liveGame)
       -- models only the later EvolvePokemon walk, so reproduce that outer
       -- item-effect gate here or an in-battle Stone would incorrectly bypass
       -- Everstone. A refusal consumes neither the Stone nor the battle turn.
-      local everstone = type(Evolution.holdsEverstone) == "function"
-        and Evolution.holdsEverstone(mon)
-        or mon.item == (Evolution.EVERSTONE or "EVERSTONE")
-      if everstone then
+      if holdsEverstone(mon) then
         return showNoTurnMessage(state, ItemEffects.TEXT_NO_EFFECT)
       end
 
@@ -1370,6 +1377,107 @@ local function installGen2(mod, liveGame)
         showNoTurnMessage(state, ItemEffects.TEXT_NO_EFFECT)
       end
     end)
+  end
+
+  ---------------------------------------------------------------------------
+  -- Gold native EVOLVE_ITEM path from the overworld PACK
+  ---------------------------------------------------------------------------
+
+  -- Gold v0.1.78 routes non-TM field items through Game2:usePartyItem(), but
+  -- ItemEffects.partyAction() intentionally has no evolution-Stone action yet.
+  -- The call therefore returns before Gen2PartyMenu is opened. Fill only that
+  -- missing EVOLVE_ITEM family here; every other field item still delegates to
+  -- Game2's original dispatcher.
+  local function fieldMessage(game, text)
+    if game and type(game.say) == "function" then
+      return game:say(text or ItemEffects.TEXT_NO_EFFECT)
+    end
+  end
+
+  local function consumeFieldItem(game, itemId)
+    if game and type(game.consumeItem) == "function" then
+      return game:consumeItem(itemId)
+    end
+    local inventory = game and game.save and game.save.inventory
+    if not inventory then return end
+    local left = (inventory[itemId] or 1) - 1
+    inventory[itemId] = left > 0 and left or nil
+  end
+
+  local function useGoldFieldEvolutionItem(game, itemId)
+    local party = (game and game.save and game.save.party) or {}
+    if #party == 0 then
+      return fieldMessage(game, "You don't have a\n#MON!")
+    end
+
+    Screens.push(game, "Gen2PartyMenu", {
+      prompt = "useItem",
+      onCancel = function()
+        if game.stack then game.stack:pop() end
+      end,
+      onChoose = function(index, mon)
+        if game.stack then game.stack:pop() end
+
+        if not mon or mon.isEgg then
+          return fieldMessage(game, mon and ItemEffects.TEXT_CANT_USE_ON_EGG
+            or ItemEffects.TEXT_NO_EFFECT)
+        end
+
+        -- The original Gold EvoStoneEffect performs this gate BEFORE
+        -- wForceEvolution is set. Keep the same semantics outside battle:
+        -- Everstone means no evolution and no Stone consumption.
+        if holdsEverstone(mon) then
+          return fieldMessage(game, ItemEffects.TEXT_NO_EFFECT)
+        end
+
+        local entry = Evolution.checkMon(game.data, mon, {
+          force = true,
+          item = itemId,
+          timeOfDay = timeOfDay(),
+        })
+        if not entry or entry.method ~= Evolution.ITEM then
+          return fieldMessage(game, ItemEffects.TEXT_NO_EFFECT)
+        end
+
+        local activeParty = (game.save and game.save.party) or party
+        local oldMon = activeParty[index]
+        if oldMon ~= mon then
+          -- Party identity changing underneath the target picker is not a
+          -- normal Gold path. Refuse rather than applying a Stone to a stale
+          -- record or charging the item.
+          return fieldMessage(game, ItemEffects.TEXT_NO_EFFECT)
+        end
+
+        Screens.push(game, "Gen2EvolutionAnim", {
+          mon = mon,
+          entry = entry,
+          index = index,
+          party = activeParty,
+          save = game.save,
+          force = true,
+          onDone = function(result)
+            if game.stack then game.stack:pop() end
+            -- Forced Stone evolution cannot be B-cancelled. Charge the Stone
+            -- only once the native animation actually committed the new party
+            -- record, matching UseDisposableItem's success-only placement.
+            if result and result.evolved then
+              consumeFieldItem(game, itemId)
+            end
+          end,
+        })
+      end,
+    })
+  end
+
+  local vanillaFieldUseItem = liveGame and liveGame.useFieldItem
+  local wrappedFieldUseItem
+  if liveGame and type(vanillaFieldUseItem) == "function" then
+    wrappedFieldUseItem = function(self, itemId, ...)
+      if evolutionItemExists(self and self.data, itemId) then
+        return useGoldFieldEvolutionItem(self, itemId)
+      end
+      return vanillaFieldUseItem(self, itemId, ...)
+    end
   end
 
   ---------------------------------------------------------------------------
@@ -1450,6 +1558,7 @@ local function installGen2(mod, liveGame)
   BattleState.advanceQueue = wrappedAdvanceQueue
   BattleState.useItem = wrappedUseItem
   PackMenu.useSelected = wrappedPackUseSelected
+  if wrappedFieldUseItem then liveGame.useFieldItem = wrappedFieldUseItem end
   EvolutionAnim.new = wrappedEvolutionAnimNew
   EvolutionAnim.update = wrappedEvolutionAnimUpdate
   EvolutionAnim.nextLearn = wrappedEvolutionAnimNextLearn
