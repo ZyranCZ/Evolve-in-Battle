@@ -32,7 +32,7 @@ Native `Evolution.apply` creates the evolved Gen 2 party record. The mod then sy
 
 ### Evolved-species exact-level moves
 
-Gold's evolution code can grant moves the **new species** learns exactly at the evolution level. A free slot stays entirely vanilla. If all four move slots are full, the current upstream evolution screen by itself can only report the pending move; v2.0.2 retains the bridge that hands that pending move into native `Game2:learnMoveOn()`.
+Gold's evolution code can grant moves the **new species** learns exactly at the evolution level. A free slot stays entirely vanilla. On Gen1Recomp v0.1.86, `Gen2EvolutionAnim` already hands a full-four-move case into native `Game2:learnMoveOn()`; v2.0.3 detects this and installs no replacement. The former bridge remains capability-gated for older engines that only report the pending move.
 
 Consequently the Forget Move selection, HM refusal, “Stop learning” branch and asynchronous UI remain Gold-native. Multiple exact-level moves are processed one at a time before battle continuation.
 
@@ -40,15 +40,15 @@ Consequently the Forget Move selection, HM refusal, “Stop learning” branch a
 
 The Gold backend discovers native `EVOLVE_ITEM` rows instead of inheriting the Gen 1 five-Stone list. Fire, Water, Thunder, Leaf, Moon and Sun Stone use the same data-driven path. Trade-held items remain `EVOLVE_TRADE` triggers and are never treated as battle Stones.
 
-Gold v0.1.78 normally rejects these field-only items in `Gen2PackMenu` before `BattleState:useItem` can see them. v2.0.2 retains that **one** BattlePack gate bypass only for Rare Candy and native `EVOLVE_ITEM` rows. All unrelated `ITEMMENU_NOUSE` items keep vanilla behavior.
+Gold v0.1.86 still rejects these field-only items in `Gen2PackMenu` before `BattleState:useItem` can see them. v2.0.3 retains that **one** BattlePack gate bypass only for Rare Candy and native `EVOLVE_ITEM` rows. All unrelated `ITEMMENU_NOUSE` items keep vanilla behavior.
 
 Everstone behavior follows the original Gold item flow. `EvoStoneEffect` checks the target’s held item **before** it sets forced evolution, so an Everstone holder refuses an Evolution Stone even though the later `EvolvePokemon` item branch itself does not repeat that check. The mod reproduces this outer gate in battle: no evolution, no consumed Stone and no spent turn.
 
 ### Evolution Stones outside battle
 
-Gold v0.1.78 has the Stone item attributes and native evolution engine, but its field party-item dispatcher is incomplete: `Game2:useFieldItem()` reaches `usePartyItem()`, while `ItemEffects.partyAction()` explicitly leaves evolution Stones unported and returns `nil`. Vanilla v0.1.78 therefore closes the call without opening the target picker.
+Gen1Recomp v0.1.86 implements this path natively through the merged `item_effects` registry. v2.0.3 detects action `stone` and does not override `Game2:useFieldItem()` on the target engine. For older compatible engines such as v0.1.78, the previous narrow fallback remains available only when that native action is absent.
 
-v2.0.2 fills that missing seam only for items discovered from native `EVOLVE_ITEM` rows. It opens `Gen2PartyMenu`, applies the original Gold Everstone/valid-target rules, runs the native forced `Gen2EvolutionAnim`, and consumes the Stone only after a successful commit. Other field-item families and held-item GIVE behavior are unchanged.
+The resulting path opens `Gen2PartyMenu`, applies Gold's Everstone/valid-target rules, runs the native forced `Gen2EvolutionAnim`, and consumes the Stone only after a successful commit. Other field-item families and held-item GIVE behavior are unchanged.
 
 ### Rare Candy
 

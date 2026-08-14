@@ -1,5 +1,17 @@
 # Evolve in Battle — Changelog
 
+## 2.0.3 — Gen1Recomp v0.1.86 migration
+
+- Migrated and re-audited the complete mod against Gen1Recomp v0.1.86 (commit `3de45b671cada26835639c9bb3623201fefedfc3`).
+- Preserved Red / Blue / Yellow and Gold targeting, Mod API 2, all user-facing behavior, the `EVOLUTION MUSIC` option key/default, and the no-`game_version` policy.
+- Moved Gold EXP level tracking from a direct `Battle.awardExperience` replacement to the shared public `battle.exp_award` hook.
+- Reuses v0.1.86's merged `item_effects` Stone validation in battle, including Egg, Everstone, custom records and `evolution.check` behavior.
+- Detects v0.1.86's native overworld Stone path and leaves `Game2:useFieldItem()` untouched; the v0.1.78 fallback installs only when action `stone` is absent.
+- Detects v0.1.86's native full-moveset `Gen2EvolutionAnim → Game2:learnMoveOn()` flow and no longer wraps it on the target; the older compatibility bridge remains capability-gated.
+- Retains only the still-required Gold internals for battle queue insertion, battle PACK Rare Candy/Stones, active-reference synchronization and evolution-audio isolation.
+- Revalidated the new sandbox surface: no raw filesystem, `io`, restricted `os`, `package`, `debug`, `ffi`, `_G`, bytecode or path traversal is used.
+- Added v0.1.86 loader, capability, functional and regression coverage without adding test artifacts to the user-facing ZIP.
+
 ## 2.0.2 — Gold overworld Evolution Stone fix
 
 - Fixed Pokémon Gold / Gen1Recomp v0.1.78 doing nothing when an Evolution Stone is used from the PACK outside battle.

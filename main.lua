@@ -1,4 +1,4 @@
--- Evolve in Battle v2.0.2
+-- Evolve in Battle v2.0.3
 -- Target: Gen1Recomp Mod API 2 (no engine-version pin)
 --
 -- Stable release. Supports in-battle evolution from ordinary EXP, EXP Share Modes bench EXP,
@@ -15,9 +15,10 @@
 --
 -- Gold additionally wraps Gen2PackMenu's BattlePack hand-off so field-only
 -- Rare Candy / EVOLVE_ITEM rows can reach the battle handler instead of being
--- rejected early as ITEMMENU_NOUSE. It also fills Gold v0.1.78's missing
--- overworld EVOLVE_ITEM party-action path, so Stones work both inside and
--- outside battle. Unrelated field-only items stay vanilla.
+-- rejected early as ITEMMENU_NOUSE. Gen1Recomp v0.1.86 now owns the normal
+-- overworld EVOLVE_ITEM path and evolved-species Forget Move flow natively;
+-- this mod detects those capabilities and leaves them untouched. Narrow
+-- compatibility fallbacks remain for older engines that lack either path.
 --
 -- The ItemEffects/Evolution/BagMenu function wrappers are engine-internal overrides and are why the
 -- manifest declares engine_internals; engine version is intentionally not pinned.
@@ -711,9 +712,9 @@ local function installGen1(mod)
   EvolutionState.update = wrappedEvolutionUpdate
 
   if wrappedExpShareHandler then
-    mod.log:info("Evolve in Battle v2.0.2 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.3 loaded (EXP Share Modes integration active, battle music continuity, evolution music default OFF)")
   else
-    mod.log:info("Evolve in Battle v2.0.2 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
+    mod.log:info("Evolve in Battle v2.0.3 loaded (vanilla battle.exp_award tracking, battle music continuity, evolution music default OFF)")
   end
 end
 
@@ -766,17 +767,52 @@ local function installGen2(mod, liveGame)
     return nil
   end
 
-  -- The authoritative question is Gold's own evolution table + method
-  -- registry.  With force=true, Evolution.checkMon permits EVOLVE_ITEM and
-  -- blocks the level/happiness/stat paths; EVOLVE_TRADE still requires link.
+  -- Prefer Gold's item_effects registry, which is the v0.1.86 authority for
+  -- the Stone family. Fall back to the evolution rows so the no-version-gate
+  -- policy remains useful on older compatible builds (including v0.1.78).
   local function evolutionItemExists(data, itemId)
-    if not (data and data.pokemon and itemId) then return false end
+    if not itemId then return false end
+    if type(ItemEffects.partyAction) == "function"
+        and ItemEffects.partyAction(itemId, data) == "stone" then
+      return true
+    end
+    if not (data and data.pokemon) then return false end
     for _, def in pairs(data.pokemon) do
       for _, row in ipairs((type(def) == "table" and def.evolutions) or {}) do
         if row.method == Evolution.ITEM and row.item == itemId then return true end
       end
     end
     return false
+  end
+
+  -- v0.1.86 validates Stones through the merged item_effects record. Reusing
+  -- it preserves Eggs, Everstone, custom Stone records and evolution.check.
+  -- The fallback is the v2.0.2 path for pre-v0.1.86 engines whose registry
+  -- did not yet classify EVOLVE_ITEM rows as a party action.
+  local function validateEvolutionItem(data, itemId, mon)
+    if type(ItemEffects.partyAction) == "function"
+        and ItemEffects.partyAction(itemId, data) == "stone"
+        and type(ItemEffects.useOnMon) == "function" then
+      return ItemEffects.useOnMon(itemId, mon, data)
+    end
+    if not mon then
+      return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+    end
+    if mon.isEgg then
+      return { used = false, text = ItemEffects.TEXT_CANT_USE_ON_EGG }
+    end
+    if holdsEverstone(mon) then
+      return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+    end
+    local entry = Evolution.checkMon(data, mon, {
+      force = true,
+      item = itemId,
+      timeOfDay = timeOfDay(),
+    })
+    if not entry or entry.method ~= Evolution.ITEM then
+      return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+    end
+    return { used = true, evolution = entry }
   end
 
   local function holdsEverstone(mon)
@@ -866,6 +902,39 @@ local function installGen2(mod, liveGame)
   local vanillaEvolutionAnimNew = EvolutionAnim.new
   local vanillaEvolutionAnimUpdate = EvolutionAnim.update
   local vanillaEvolutionAnimNextLearn = EvolutionAnim.nextLearn
+
+  -- v0.1.86 moved the full-four-move hand-off into EvolutionAnim itself.
+  -- Probe the behavior rather than pinning an engine version: this uses only
+  -- disposable tables and cannot touch a save, UI stack or shared dataset.
+  local function evolutionAnimOwnsFullMoveFlow()
+    local handedOff = false
+    local probe = {
+      learnIndex = 0,
+      pending = { "EIB_CAPABILITY_PROBE" },
+      evolved = { moves = {
+        { id = "EIB_OLD_1" }, { id = "EIB_OLD_2" },
+        { id = "EIB_OLD_3" }, { id = "EIB_OLD_4" },
+      } },
+      data = { moves = { EIB_CAPABILITY_PROBE = {
+        id = "EIB_CAPABILITY_PROBE", name = "PROBE", pp = 1,
+      } } },
+      learned = {},
+      full = {},
+      nick = "PROBE",
+      game = {
+        learnMoveOn = function(_, _, _, onDone)
+          handedOff = true
+          if onDone then onDone(false) end
+        end,
+      },
+      setPhase = function(self, phase) self.phase = phase end,
+      nextLearn = function() end,
+    }
+    local ok = pcall(vanillaEvolutionAnimNextLearn, probe)
+    return ok and handedOff
+  end
+
+  local needsLegacyFullMoveBridge = not evolutionAnimOwnsFullMoveFlow()
 
   local audioByAnim = setmetatable({}, { __mode = "k" })
   local candyAudioPending = setmetatable({}, { __mode = "k" })
@@ -1018,14 +1087,8 @@ local function installGen2(mod, liveGame)
     return anim
   end
 
-  -- Current upstream Gold reports an exact-level evolved-species move in
-  -- EvolutionAnim.full when all four slots are occupied, but that screen does
-  -- not itself open ForgetMove.  Gold already has the complete native
-  -- Game2:learnMoveOn flow, so for this mod's in-battle animations only bridge
-  -- that one missing presentation seam instead of inventing a move learner.
-  -- The wrapper waits until EvolutionAnim advances past its own "wants to
-  -- learn" page; then the native forget/decline/HM flow runs, and only after it
-  -- completes do we ask EvolutionAnim for the next exact-level move.
+  -- Compatibility bridge for older Gold engines. v0.1.86 owns this natively,
+  -- so the wrapper is not installed there.
   local wrappedEvolutionAnimNextLearn
   wrappedEvolutionAnimNextLearn = function(self, ...)
     local audio = self and audioByAnim[self] or nil
@@ -1107,28 +1170,30 @@ local function installGen2(mod, liveGame)
   -- EXP level-up boundary -> Gold-native in-battle evolution queue
   ---------------------------------------------------------------------------
 
-  local vanillaAwardExperience = Battle.awardExperience
-  local wrappedAwardExperience
-  wrappedAwardExperience = function(self, ...)
+  mod.hooks:wrap("battle.exp_award", function(next, ctx)
+    local battle = ctx and ctx.battle or nil
+    if not battle then return next(ctx) end
     local before = {}
-    for i, mon in ipairs(self.party or {}) do before[i] = tonumber(mon.level) or 0 end
+    for i, mon in ipairs(battle.party or {}) do
+      before[i] = tonumber(mon.level) or 0
+    end
 
-    local results = pack(vanillaAwardExperience(self, ...))
+    local results = pack(next(ctx))
 
     local slots = {}
-    for i, mon in ipairs(self.party or {}) do
+    for i, mon in ipairs(battle.party or {}) do
       local old = before[i]
       local now = tonumber(mon.level) or old or 0
       if old ~= nil and now > old then slots[#slots + 1] = i end
     end
-    if #slots > 0 and type(self.emit) == "function" then
+    if #slots > 0 and type(battle.emit) == "function" then
       -- awardExperience runs inside faint resolution.  Emitting after the
       -- native EXP/level/move events puts this marker before replacement/send
       -- and battle-end events, while BattleState drains everything before it.
-      self:emit({ kind = LEVEL_MARKER, slots = slots })
+      battle:emit({ kind = LEVEL_MARKER, slots = slots })
     end
     return unpack_(results, 1, results.n)
-  end
+  end)
 
   -- A full moveset pauses on choose-forget.  Its resolution messages are
   -- generated later and would otherwise be appended behind the already queued
@@ -1335,39 +1400,23 @@ local function installGen2(mod, liveGame)
 
   local function useGoldEvolutionItem(state, itemId)
     openPartyTarget(state, function(index, mon)
-      if not mon or mon.isEgg then
-        return showNoTurnMessage(state, mon and ItemEffects.TEXT_CANT_USE_ON_EGG)
-      end
-
-      -- Pokémon Gold checks EVERSTONE in EvoStoneEffect before it sets
-      -- wForceEvolution and enters EvolvePokemon. Evolution.checkMon(force)
-      -- models only the later EvolvePokemon walk, so reproduce that outer
-      -- item-effect gate here or an in-battle Stone would incorrectly bypass
-      -- Everstone. A refusal consumes neither the Stone nor the battle turn.
-      if holdsEverstone(mon) then
-        return showNoTurnMessage(state, ItemEffects.TEXT_NO_EFFECT)
-      end
-
-      local entry = Evolution.checkMon(state.game.data, mon, {
-        force = true,
-        item = itemId,
-        timeOfDay = timeOfDay(),
-      })
-      if not entry or entry.method ~= Evolution.ITEM then
-        return showNoTurnMessage(state, ItemEffects.TEXT_NO_EFFECT)
+      local result = validateEvolutionItem(state.game.data, itemId, mon)
+      if not (result and result.used and result.evolution) then
+        return showNoTurnMessage(state, result and result.text)
       end
 
       state:consumeItem(itemId)
-      local started = beginGoldEvolution(state, index, entry, true, function(result)
-        if result and result.evolved then
-          spendItemTurn(state, itemId)
-        else
-          -- Forced item evolution is not B-cancelable. If upstream ever
-          -- refuses to apply after successful eligibility, avoid charging a
-          -- second turn; the consumed-item state is left visible for diagnosis.
-          resumeBattleQueue(state)
-        end
-      end)
+      local started = beginGoldEvolution(state, index, result.evolution, true,
+        function(evolutionResult)
+          if evolutionResult and evolutionResult.evolved then
+            spendItemTurn(state, itemId)
+          else
+            -- Forced item evolution is not B-cancelable. If upstream ever
+            -- refuses to apply after successful eligibility, avoid charging a
+            -- second turn; the consumed-item state is left visible for diagnosis.
+            resumeBattleQueue(state)
+          end
+        end)
       if not started then
         -- No screen means no completed use. Refund the copy we removed if the
         -- save inventory is available; this is a defensive runtime failure path,
@@ -1383,11 +1432,9 @@ local function installGen2(mod, liveGame)
   -- Gold native EVOLVE_ITEM path from the overworld PACK
   ---------------------------------------------------------------------------
 
-  -- Gold v0.1.78 routes non-TM field items through Game2:usePartyItem(), but
-  -- ItemEffects.partyAction() intentionally has no evolution-Stone action yet.
-  -- The call therefore returns before Gen2PartyMenu is opened. Fill only that
-  -- missing EVOLVE_ITEM family here; every other field item still delegates to
-  -- Game2's original dispatcher.
+  -- Compatibility fallback for Gold v0.1.78 and similar older builds.
+  -- v0.1.86 classifies Stones as item_effects action="stone" and owns this
+  -- whole path natively, so this override is not installed on the target.
   local function fieldMessage(game, text)
     if game and type(game.say) == "function" then
       return game:say(text or ItemEffects.TEXT_NO_EFFECT)
@@ -1469,9 +1516,27 @@ local function installGen2(mod, liveGame)
     })
   end
 
+  local nativeFieldStoneSupport = false
+  if liveGame and liveGame.data and type(ItemEffects.partyAction) == "function" then
+    local sawEvolutionItem = false
+    local everyEvolutionItemIsNative = true
+    for _, def in pairs(liveGame.data.pokemon or {}) do
+      for _, row in ipairs((type(def) == "table" and def.evolutions) or {}) do
+        if row.method == Evolution.ITEM and row.item then
+          sawEvolutionItem = true
+          if ItemEffects.partyAction(row.item, liveGame.data) ~= "stone" then
+            everyEvolutionItemIsNative = false
+          end
+        end
+      end
+    end
+    nativeFieldStoneSupport = sawEvolutionItem and everyEvolutionItemIsNative
+  end
+
   local vanillaFieldUseItem = liveGame and liveGame.useFieldItem
   local wrappedFieldUseItem
-  if liveGame and type(vanillaFieldUseItem) == "function" then
+  if not nativeFieldStoneSupport and liveGame
+      and type(vanillaFieldUseItem) == "function" then
     wrappedFieldUseItem = function(self, itemId, ...)
       if evolutionItemExists(self and self.data, itemId) then
         return useGoldFieldEvolutionItem(self, itemId)
@@ -1551,7 +1616,6 @@ local function installGen2(mod, liveGame)
   -- Install last: no half-installed internal overrides after setup failure
   ---------------------------------------------------------------------------
 
-  Battle.awardExperience = wrappedAwardExperience
   Battle.resolveForget = wrappedResolveForget
   Battle.declineForget = wrappedDeclineForget
   BattleState.pushAll = wrappedPushAll
@@ -1561,13 +1625,15 @@ local function installGen2(mod, liveGame)
   if wrappedFieldUseItem then liveGame.useFieldItem = wrappedFieldUseItem end
   EvolutionAnim.new = wrappedEvolutionAnimNew
   EvolutionAnim.update = wrappedEvolutionAnimUpdate
-  EvolutionAnim.nextLearn = wrappedEvolutionAnimNextLearn
+  if needsLegacyFullMoveBridge then
+    EvolutionAnim.nextLearn = wrappedEvolutionAnimNextLearn
+  end
   Music.play = wrappedMusicPlay
   Music.stop = wrappedMusicStop
   Music.duckForFanfare = wrappedDuckForFanfare
 
   if mod.log and mod.log.info then
-    mod.log:info("Evolve in Battle Gold backend loaded (native Gen 2 evolution/item systems; EVOLUTION MUSIC default OFF)")
+    mod.log:info("Evolve in Battle v2.0.3 Gold backend loaded (v0.1.86 capability migration; EVOLUTION MUSIC default OFF)")
   end
 end
 
